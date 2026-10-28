@@ -42,6 +42,17 @@ Describe 'Review worktrees' {
         }
     }
 
+    It 'GetReviewTarget_BareRepository_UsesRepositoryFolderAsRoot' {
+        $target = & $script:GetReviewTarget $remote 'feature/test'
+        $target.RepositoryPath | Should Be ([IO.Path]::GetFullPath($remote))
+        $target.WorktreePath | Should Be (Join-Path $remote 'review-feature-test')
+    }
+
+    It 'GetReviewTarget_NonBareRepository_UsesWorkingTreeRoot' {
+        $target = & $script:GetReviewTarget $repository 'feature/test'
+        $target.RepositoryPath | Should Be ([IO.Path]::GetFullPath($repository))
+    }
+
     It 'NewReviewWorktree_RemoteBranch_CreatesTrackingBranchAndSiblingWorktree' {
         $result = New-ReviewWorktree 'feature/test' -RepositoryPath $repository
         $result.WorktreePath | Should Be $reviewPath
@@ -51,6 +62,17 @@ Describe 'Review worktrees' {
         (& $script:InvokeReviewGit $reviewPath @('rev-parse', 'HEAD')) |
         Should Be (& $script:InvokeReviewGit $repository @('rev-parse', 'refs/remotes/origin/feature/test'))
         (& $script:InvokeReviewGit $repository @('branch', '--show-current')) | Should Be 'main'
+    }
+
+    It 'NewReviewWorktree_DefaultRepositoryPath_UsesCurrentFolder' {
+        Push-Location $repository
+        try {
+            $result = New-ReviewWorktree 'feature/test'
+            $result.RepositoryPath | Should Be ([IO.Path]::GetFullPath($repository))
+        }
+        finally {
+            Pop-Location
+        }
     }
 
     It 'RemoveReviewWorktree_CleanUnmergedPR_RemovesOnlyReviewBranchAndWorktree' {

@@ -13,14 +13,21 @@ $script:GetReviewTarget = {
     param ([string] $RepositoryPath, [string] $BranchName)
 
     & $script:InvokeReviewGit $RepositoryPath @('check-ref-format', "refs/heads/$BranchName") | Out-Null
-    $root = [string] (& $script:InvokeReviewGit $RepositoryPath @('rev-parse', '--show-toplevel'))
+    $isBareRepository = [string] (& $script:InvokeReviewGit $RepositoryPath @('rev-parse', '--is-bare-repository'))
+    if ($isBareRepository -eq 'true') {
+        $root = $RepositoryPath
+    }
+    else {
+        $root = [string] (& $script:InvokeReviewGit $RepositoryPath @('rev-parse', '--show-toplevel'))
+    }
     $root = [IO.Path]::GetFullPath($root)
     $folderName = 'review-' + ($BranchName -replace '[\\/:*?"<>|]', '-')
+    $worktreeParent = if ($isBareRepository -eq 'true') { $root } else { Split-Path $root -Parent }
 
     [PSCustomObject]@{
         RepositoryPath = $root
         BranchName     = "review/$BranchName"
-        WorktreePath   = Join-Path (Split-Path $root -Parent) $folderName
+        WorktreePath   = Join-Path $worktreeParent $folderName
     }
 }
 
@@ -42,10 +49,11 @@ function New-ReviewWorktree {
         [string] $BranchName,
 
         [ValidateNotNullOrEmpty()]
-        [string] $RepositoryPath = (Get-Item $PSScriptRoot).Parent.Parent.Parent.FullName
+        [string] $RepositoryPath = (Get-Location).Path
     )
-
+    Write-Debug "Getting review target for branch '$BranchName' in repository '$RepositoryPath'"
     $target = & $script:GetReviewTarget $RepositoryPath $BranchName
+    Write-Debug ($target | Format-List | Out-String)
     $root = $target.RepositoryPath
     $existingBranch = & $script:InvokeReviewGit $root @('branch', '--list', $target.BranchName)
     if ($existingBranch) {
@@ -92,7 +100,7 @@ function Remove-ReviewWorktree {
         [switch] $Force,
 
         [ValidateNotNullOrEmpty()]
-        [string] $RepositoryPath = (Get-Item $PSScriptRoot).Parent.Parent.Parent.FullName
+        [string] $RepositoryPath = (Get-Location).Path
     )
 
     $target = & $script:GetReviewTarget $RepositoryPath $BranchName
