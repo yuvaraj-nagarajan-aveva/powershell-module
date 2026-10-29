@@ -29,6 +29,7 @@ Describe 'Review worktrees' {
         & $script:InvokeReviewGit $repository @('config', 'commit.gpgsign', 'false') | Out-Null
         & $script:InvokeReviewGit $repository @('commit', '--allow-empty', '-m', 'Initial commit') | Out-Null
         & $script:InvokeReviewGit $repository @('remote', 'add', 'origin', $remote) | Out-Null
+        & $script:InvokeReviewGit $repository @('push', 'origin', 'main') | Out-Null
         & $script:InvokeReviewGit $repository @('checkout', '-b', 'feature/test') | Out-Null
         & $script:InvokeReviewGit $repository @('commit', '--allow-empty', '-m', 'PR commit') | Out-Null
         & $script:InvokeReviewGit $repository @('push', 'origin', 'feature/test') | Out-Null
@@ -40,6 +41,185 @@ Describe 'Review worktrees' {
         if ($testRoot -and (Test-Path -LiteralPath $testRoot)) {
             Remove-Item -LiteralPath $testRoot -Recurse -Force
         }
+    }
+
+    It 'NewWorktree_RemoteBranchPrefix_PublishesNamespacedBranchAndSetsUpstream' {
+        $result = New-Worktree 12345 -BranchName add-search -RemoteBranchPrefix users/uv -RepositoryPath $repository
+        $result.BranchName | Should Be 'feat-12345-add-search'
+        $result.RemoteBranchName | Should Be 'origin/users/uv/feat-12345-add-search'
+        $result.WorktreePath | Should Be (Join-Path $testRoot 'feat-12345-add-search')
+        (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', '--abbrev-ref', '@{upstream}')) |
+        Should Be 'origin/users/uv/feat-12345-add-search'
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/users/uv/feat-12345-add-search')) |
+        Should Not BeNullOrEmpty
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/feat-12345-add-search')) |
+        Should BeNullOrEmpty
+        Remove-Worktree 12345 -BranchName add-search -RemoteBranchPrefix users/uv -RepositoryPath $repository -Confirm:$false
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/users/uv/feat-12345-add-search')) |
+        Should Not BeNullOrEmpty
+    }
+
+    It 'NewBugWorktree_BugIdAndSuffix_CreatesAndRemovesBugBranch' {
+        $result = New-BugWorktree -BugId 54321 -BranchName fix-login -RepositoryPath $repository
+        $result.BranchName | Should Be 'bug-54321-fix-login'
+        $result.RemoteBranchName | Should Be 'origin/bug-54321-fix-login'
+        $result.WorktreePath | Should Be (Join-Path $testRoot 'bug-54321-fix-login')
+        (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', '--abbrev-ref', '@{upstream}')) |
+        Should Be 'origin/bug-54321-fix-login'
+        Remove-BugWorktree -BugId 54321 -BranchName fix-login -RepositoryPath $repository -Confirm:$false
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $false
+    }
+
+    It 'NewBugWorktree_WhatIf_ReturnsPlanWithoutRemoteAccess' {
+        & $script:InvokeReviewGit $repository @('remote', 'remove', 'origin') | Out-Null
+        $before = & $script:InvokeReviewGit $repository @('show-ref')
+        $plan = New-BugWorktree -BugId 54321 -BranchName fix-login -RemoteBranchPrefix users/uv -RepositoryPath $repository -WhatIf
+        $plan.LocalBranchName | Should Be 'bug-54321-fix-login'
+        $plan.RemoteBranchName | Should Be 'origin/users/uv/bug-54321-fix-login'
+        $plan.SourceBranchName | Should Be 'origin/main'
+        $plan.WorktreePath | Should Be (Join-Path $testRoot 'bug-54321-fix-login')
+        $plan.RemoteAction | Should Be 'Create'
+        (Test-Path -LiteralPath $plan.WorktreePath) | Should Be $false
+        ((& $script:InvokeReviewGit $repository @('show-ref')) -join "`n") | Should Be ($before -join "`n")
+    }
+
+    It 'NewWorktree_InvalidRemoteBranchPrefix_RefusesBeforeMutation' {
+        Assert-ReviewFailure {
+            New-Worktree 12345 -RemoteBranchPrefix '../users' -RepositoryPath $repository -WhatIf
+        } 'check-ref-format'
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should BeNullOrEmpty
+    }
+
+    It 'NewWorktree_WorkItemId_CreatesAndPublishesTrackingBranchFromBase' {
+        $result = New-Worktree -WorkItemId 12345 -RepositoryPath $repository
+        $result.BranchName | Should Be 'feat-12345'
+        $result.WorktreePath | Should Be (Join-Path $testRoot 'feat-12345')
+        (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', '--abbrev-ref', '@{upstream}')) | Should Be 'origin/feat-12345'
+        (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', 'HEAD')) |
+        Should Be (& $script:InvokeReviewGit $repository @('rev-parse', 'refs/remotes/origin/main'))
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'feat-12345')) | Should Not BeNullOrEmpty
+        (& $script:InvokeReviewGit $repository @('branch', '--show-current')) | Should Be 'main'
+    }
+
+    It 'NewWorktree_TaskIdAndCustomBase_UsesLatestRemoteCommit' {
+        $result = New-Worktree -TaskId 12345 -BaseBranch 'feature/test' -RepositoryPath $repository
+        (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', 'HEAD')) |
+        Should Be (& $script:InvokeReviewGit $repository @('rev-parse', 'refs/remotes/origin/feature/test'))
+    }
+
+    It 'NewWorktree_UserStoryId_DefaultsToCurrentRepository' {
+        Push-Location $repository
+        try {
+            $result = New-Worktree -UserStoryId 12345
+            $result.RepositoryPath | Should Be ([IO.Path]::GetFullPath($repository))
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    It 'NewWorktree_BareRepository_CreatesWorktreeInsideRepository' {
+        $bareClone = Join-Path $testRoot 'clone.git'
+        & $script:InvokeReviewGit $testRoot @('clone', '--bare', $remote, $bareClone) | Out-Null
+        $result = New-Worktree 12345 -RepositoryPath $bareClone
+        $result.WorktreePath | Should Be (Join-Path $bareClone 'feat-12345')
+        (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', '--abbrev-ref', '@{upstream}')) | Should Be 'origin/feat-12345'
+        Remove-Worktree 12345 -RepositoryPath $bareClone -Confirm:$false
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $false
+    }
+
+    It 'NewWorktree_WhatIf_DoesNotCreateLocalOrRemoteBranch' {
+        New-Worktree 12345 -RepositoryPath $repository -WhatIf
+        (Test-Path -LiteralPath (Join-Path $testRoot 'feat-12345')) | Should Be $false
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should BeNullOrEmpty
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'feat-12345')) | Should BeNullOrEmpty
+    }
+
+    It 'NewWorktree_ExistingRemoteBranch_RefusesWithoutCreatingLocalBranch' {
+        & $script:InvokeReviewGit $repository @('push', 'origin', 'main:refs/heads/feat-12345') | Out-Null
+        Assert-ReviewFailure { New-Worktree 12345 -RepositoryPath $repository } 'Remote branch'
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should BeNullOrEmpty
+    }
+
+    It 'NewWorktree_ExistingFolderOrLocalBranch_RefusesWithoutPublishing' {
+        $featurePath = Join-Path $testRoot 'feat-12345'
+        New-Item -ItemType Directory -Path $featurePath | Out-Null
+        Assert-ReviewFailure { New-Worktree 12345 -RepositoryPath $repository } 'already exists'
+        Remove-Item -LiteralPath $featurePath
+        & $script:InvokeReviewGit $repository @('branch', 'feat-12345') | Out-Null
+        Assert-ReviewFailure { New-Worktree 12345 -RepositoryPath $repository } 'Local branch'
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'feat-12345')) | Should BeNullOrEmpty
+    }
+
+    It 'NewWorktree_InvalidIdOrMissingBase_DoesNotCreateBranch' {
+        Assert-ReviewFailure { New-Worktree '../invalid' -RepositoryPath $repository } 'WorkItemId'
+        Assert-ReviewFailure { New-Worktree 0 -RepositoryPath $repository } 'WorkItemId'
+        Assert-ReviewFailure { New-Worktree 12345 -BaseBranch missing -RepositoryPath $repository } 'failed'
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should BeNullOrEmpty
+    }
+
+    It 'RemoveWorktree_CleanBranch_RemovesOnlyLocalWorktreeAndBranch' {
+        $result = New-Worktree -UserStoryId 12345 -RepositoryPath $repository
+        Remove-Worktree -TaskId 12345 -RepositoryPath $repository -Confirm:$false
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $false
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should BeNullOrEmpty
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'feat-12345')) | Should Not BeNullOrEmpty
+    }
+
+    It 'RemoveWorktree_WhatIf_PreservesWorktreeAndBranch' {
+        $result = New-Worktree 12345 -RepositoryPath $repository
+        Remove-Worktree 12345 -RepositoryPath $repository -WhatIf
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $true
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should Not BeNullOrEmpty
+    }
+
+    It 'RemoveWorktree_UncommittedChanges_RefusesWithoutDiscarding' {
+        $result = New-Worktree 12345 -RepositoryPath $repository
+        $file = Join-Path $result.WorktreePath 'keep.txt'
+        Set-Content -LiteralPath $file -Value 'Keep this change'
+        Assert-ReviewFailure { Remove-Worktree 12345 -RepositoryPath $repository -Confirm:$false } 'uncommitted changes'
+        (Test-Path -LiteralPath $file) | Should Be $true
+        & $script:InvokeReviewGit $result.WorktreePath @('add', '--', 'keep.txt') | Out-Null
+        Assert-ReviewFailure { Remove-Worktree 12345 -RepositoryPath $repository -Confirm:$false } 'uncommitted changes'
+    }
+
+    It 'RemoveWorktree_UnpushedCommit_RefusesUntilPushed' {
+        $result = New-Worktree 12345 -RepositoryPath $repository
+        & $script:InvokeReviewGit $result.WorktreePath @('commit', '--allow-empty', '-m', 'Feature work') | Out-Null
+        Assert-ReviewFailure { Remove-Worktree 12345 -RepositoryPath $repository -Confirm:$false } 'local-only commit'
+        & $script:InvokeReviewGit $result.WorktreePath @('push', 'origin', 'HEAD:refs/heads/feat-12345') | Out-Null
+        Remove-Worktree 12345 -RepositoryPath $repository -Confirm:$false
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $false
+    }
+
+    It 'RemoveWorktree_Force_DiscardsLocalWorkButPreservesRemote' {
+        $result = New-Worktree 12345 -RepositoryPath $repository
+        & $script:InvokeReviewGit $result.WorktreePath @('commit', '--allow-empty', '-m', 'Disposable work') | Out-Null
+        Set-Content -LiteralPath (Join-Path $result.WorktreePath 'discard.txt') -Value 'Disposable'
+        Remove-Worktree 12345 -RepositoryPath $repository -Force -Confirm:$false
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $false
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'feat-12345')) | Should Not BeNullOrEmpty
+    }
+
+    It 'RemoveWorktree_WrongBranch_RefusesEvenWithForce' {
+        $result = New-Worktree 12345 -RepositoryPath $repository
+        & $script:InvokeReviewGit $result.WorktreePath @('checkout', '-b', 'unrelated') | Out-Null
+        Assert-ReviewFailure { Remove-Worktree 12345 -RepositoryPath $repository -Force -Confirm:$false } 'not the expected feature worktree'
+        (Test-Path -LiteralPath $result.WorktreePath) | Should Be $true
+    }
+
+    It 'RemoveWorktree_DifferentRepository_RefusesEvenWithForce' {
+        $featurePath = Join-Path $testRoot 'feat-12345'
+        & $script:InvokeReviewGit $testRoot @('init', '--initial-branch=feat-12345', $featurePath) | Out-Null
+        Assert-ReviewFailure { Remove-Worktree 12345 -RepositoryPath $repository -Force -Confirm:$false } 'different repository'
+        (Test-Path -LiteralPath $featurePath) | Should Be $true
+    }
+
+    It 'RemoveWorktree_LockedWorktree_PreservesBranchWhenRemovalFails' {
+        $result = New-Worktree 12345 -RepositoryPath $repository
+        & $script:InvokeReviewGit $repository @('worktree', 'lock', '--', $result.WorktreePath) | Out-Null
+        Assert-ReviewFailure { Remove-Worktree 12345 -RepositoryPath $repository -Force -Confirm:$false } 'failed'
+        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should Not BeNullOrEmpty
     }
 
     It 'GetReviewTarget_BareRepository_UsesRepositoryFolderAsRoot' {
