@@ -1,4 +1,96 @@
-## Module usage
+## Install from GitHub Packages
+
+The module is published to the GitHub Packages NuGet feed. It requires
+PowerShell 7 and Git. PowerShell 7.4 and later include PSResourceGet; earlier
+PowerShell 7 versions need `Microsoft.PowerShell.PSResourceGet` installed.
+
+Even for public NuGet packages, GitHub requires authentication. Create a GitHub
+personal access token (classic) with `read:packages`. Register the account-scoped
+feed once per user:
+
+```powershell
+Register-PSResourceRepository -Name UVGitHub `
+    -Uri 'https://nuget.pkg.github.com/yuvaraj-nagarajan-aveva/index.json'
+```
+
+After the first package version has been published, enter your GitHub username
+and token when prompted and install the module:
+
+```powershell
+$credential = Get-Credential
+Install-PSResource -Name UVModule -Repository UVGitHub -Scope CurrentUser -Credential $credential
+Import-Module UVModule
+```
+
+If `Import-Module` cannot find the installed module, check that the current-user
+module directory is in `$env:PSModulePath`. On Windows, the following adds it to
+the current session; add the same lines to your PowerShell profile if needed:
+
+```powershell
+$userModules = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Modules'
+if ($env:PSModulePath -split [IO.Path]::PathSeparator -notcontains $userModules) {
+    $env:PSModulePath = $userModules + [IO.Path]::PathSeparator + $env:PSModulePath
+}
+```
+
+Remove any old profile import that points directly to this checkout if you
+want sessions to load the installed version instead.
+
+Update it using the same credentials, then start a new PowerShell session to
+load the new version:
+
+```powershell
+Update-PSResource -Name UVModule -Repository UVGitHub -Scope CurrentUser -Credential $credential
+```
+
+The repository registration does not save credentials. For repeated use, use a
+secure credential vault or run `Get-Credential` again. The package must be
+visible to your GitHub account. If the repository is untrusted, PowerShell
+prompts for confirmation. `Register-PSRepository` and `Install-Module` are
+PowerShellGet v2 commands; use the PSResourceGet commands above for this
+GitHub Packages feed.
+
+### Build and release
+
+1. Update `ModuleVersion` in `UVModule.psd1`, commit the change, and push it.
+   Each release needs a new version; published versions are immutable.
+2. Create and push a matching tag, for example:
+
+   ```powershell
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+3. The GitHub Actions workflow runs the tests, checks that the tag matches the
+   manifest, builds the package, and publishes it using `GITHUB_TOKEN` with
+   package write permission. Check the workflow result and package visibility
+   before installing. Repository or organization policies may need to permit
+   Actions to publish packages. For an existing package, grant the workflow
+   repository package access if needed.
+
+After the first release, check the package's visibility in GitHub Package
+settings. If it is private, change it to public there. GitHub warns that once a
+package is public, it cannot be made private again. Public GitHub Packages still
+require authentication to install; this is not a PowerShell Gallery release.
+
+To build without publishing, run the following from the repository root with
+PSResourceGet 1.1.0 or later installed:
+
+```powershell
+New-Item -ItemType Directory -Path .\package -Force | Out-Null
+.\scripts\Build-ModulePackage.ps1 -DestinationPath .\package
+```
+
+If publication fails before the version exists, rerun the workflow after
+correcting the cause. If the package version was already published, verify it
+before deciding whether to publish a new version. To roll back, install a
+known-good version explicitly with `Install-PSResource -Version <version>`.
+
+The package installation/update integration test is intended for a disposable
+environment with no existing `UVModule` installation, because it temporarily
+installs and removes test versions for the current user.
+
+## Import from a checkout
 
 Import the module in the current PowerShell session with the path to `UVModule.psm1`:
 

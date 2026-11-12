@@ -1,0 +1,90 @@
+name: Validate and release module
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 3.4.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          if (-not (Get-Module Microsoft.PowerShell.PSResourceGet -ListAvailable | Where-Object Version -ge '1.1.0')) {
+            Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser -Force
+          }
+      - name: Validate manifest and worktree tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Test-ModuleManifest .\UVModule.psd1 -ErrorAction Stop | Out-Null
+          Import-Module Pester -RequiredVersion 3.4.0 -Force
+          $env:GIT_CONFIG_COUNT = '1'
+          $env:GIT_CONFIG_KEY_0 = 'safe.bareRepository'
+          $env:GIT_CONFIG_VALUE_0 = 'all'
+          $result = Invoke-Pester .\Tests\Worktree-Functions.Tests.ps1 -PassThru
+          if ($result.FailedCount -ne 0) { throw "$($result.FailedCount) tests failed." }
+      - name: Test package installation and update
+        shell: pwsh
+        run: .\Tests\Package.Integration.ps1
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Import-PowerShellDataFile .\UVModule.psd1).ModuleVersion
+          if ($env:RELEASE_TAG -cne "v$version") {
+            throw "Tag '$env:RELEASE_TAG' does not match manifest version '$version'."
+          }
+          if (-not (Get-Module Microsoft.PowerShell.PSResourceGet -ListAvailable | Where-Object Version -ge '1.1.0')) {
+            Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser -Force
+          }
+          New-Item -ItemType Directory -Path .\package | Out-Null
+          .\scripts\Build-ModulePackage.ps1 -DestinationPath .\package
+      - name: Publish to GitHub Packages
+        shell: pwsh
+        env:
+          GH_PACKAGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Get-ChildItem -LiteralPath .\package -Filter '*.nupkg'
+          if (@($package).Count -ne 1) { throw 'Expected exactly one module package.' }
+          $config = Join-Path $env:RUNNER_TEMP 'uvmodule-nuget.config'
+          try {
+            @"
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="GitHub" value="https://nuget.pkg.github.com/$env:PACKAGE_OWNER/index.json" />
+            </packageSources>
+          </configuration>
+          "@ | Set-Content -LiteralPath $config -Encoding utf8
+            $env:NuGetPackageSourceCredentials_GitHub = "Username=$env:GITHUB_ACTOR;Password=$env:GH_PACKAGE_TOKEN"
+            $env:NUGET_API_KEY = $env:GH_PACKAGE_TOKEN
+            dotnet nuget push $package.FullName --source GitHub --configfile $config
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub Packages publish failed.' }
+          }
+          finally {
+            if (Test-Path -LiteralPath $config) { Remove-Item -LiteralPath $config -Force }
+          }
