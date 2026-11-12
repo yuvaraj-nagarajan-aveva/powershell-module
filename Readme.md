@@ -48,20 +48,19 @@ Remove-Worktree -UserStoryId 67890
 ```
 
 `-WorkItemId` (or the first positional argument) accepts either kind of ID.
-Creation fetches `origin/main` by default. `-BranchName` adds an optional suffix
-to the local branch and folder, while `-RemoteBranchPrefix` adds a remote-only
-namespace:
+Creation fetches `origin/main` by default. `-BranchName` adds an optional
+suffix to the local and remote branch names and the worktree folder:
 
 ```powershell
-New-Worktree -TaskId 12345 -BranchName add-search -RemoteBranchPrefix users/uv
-Remove-Worktree -TaskId 12345 -BranchName add-search -RemoteBranchPrefix users/uv
+New-Worktree -TaskId 12345 -BranchName add-search
+Remove-Worktree -TaskId 12345 -BranchName add-search
 ```
 
 This creates local branch and sibling folder `feat-12345-add-search`, publishes
-`origin/users/uv/feat-12345-add-search`, and sets it as the upstream. Both
-parameters are optional; without them the local and remote branch names are
-`feat-12345`. Branch suffixes and remote prefixes must form valid Git branch
-names. Supply the same suffix and prefix when removing the worktree.
+`origin/feat-12345-add-search`, and sets it as the upstream. `-BranchName` is
+optional; without it the local and remote branch names are `feat-12345`.
+Branch suffixes must form valid Git branch names. Supply the same suffix when
+removing the worktree.
 
 Use `-BaseBranch` to start from another origin branch. Existing local branches,
 remote branches, and folders are never overwritten. If publishing fails, the
@@ -82,16 +81,16 @@ or repository/branch identity checks. Both commands support `-WhatIf`.
 
 ### Bug worktrees
 
-Bug worktrees use `bug-` instead of `feat-` and have the same suffix, remote
-namespace, base branch, cleanup, and preview options:
+Bug worktrees use `bug-` instead of `feat-` and have the same suffix, base
+branch, cleanup, and preview options:
 
 ```powershell
-New-BugWorktree -BugId 54321 -BranchName fix-login -RemoteBranchPrefix users/uv
-Remove-BugWorktree -BugId 54321 -BranchName fix-login -RemoteBranchPrefix users/uv
+New-BugWorktree -BugId 54321 -BranchName fix-login
+Remove-BugWorktree -BugId 54321 -BranchName fix-login
 ```
 
 The local branch and sibling folder are `bug-54321-fix-login`; the remote
-branch is `origin/users/uv/bug-54321-fix-login`. `-BugId` is an alias for
+branch is `origin/bug-54321-fix-login`. `-BugId` is an alias for
 `-WorkItemId`.
 
 ### Preview changes
@@ -101,9 +100,9 @@ plan containing the repository path, local branch, remote branch, source branch
 when creating, worktree folder, and remote action:
 
 ```powershell
-New-Worktree -TaskId 12345 -BranchName add-search -RemoteBranchPrefix users/uv -WhatIf | Format-List
-Remove-Worktree -TaskId 12345 -BranchName add-search -RemoteBranchPrefix users/uv -WhatIf | Format-List
-New-BugWorktree -BugId 54321 -BranchName fix-login -RemoteBranchPrefix users/uv -WhatIf | Format-List
+New-Worktree -TaskId 12345 -BranchName add-search -WhatIf | Format-List
+Remove-Worktree -TaskId 12345 -BranchName add-search -WhatIf | Format-List
+New-BugWorktree -BugId 54321 -BranchName fix-login -WhatIf | Format-List
 New-ReviewWorktree -BranchName feature/test -WhatIf | Format-List
 ```
 

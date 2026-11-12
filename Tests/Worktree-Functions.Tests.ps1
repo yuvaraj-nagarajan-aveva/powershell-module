@@ -43,20 +43,24 @@ Describe 'Review worktrees' {
         }
     }
 
-    It 'NewWorktree_RemoteBranchPrefix_PublishesNamespacedBranchAndSetsUpstream' {
-        $result = New-Worktree 12345 -BranchName add-search -RemoteBranchPrefix users/uv -RepositoryPath $repository
+    It 'NewWorktree_PublishesSameBranchNameLocallyAndRemotely' {
+        $result = New-Worktree 12345 -BranchName add-search -RepositoryPath $repository
         $result.BranchName | Should Be 'feat-12345-add-search'
-        $result.RemoteBranchName | Should Be 'origin/users/uv/feat-12345-add-search'
+        $result.RemoteBranchName | Should Be 'origin/feat-12345-add-search'
         $result.WorktreePath | Should Be (Join-Path $testRoot 'feat-12345-add-search')
         (& $script:InvokeReviewGit $result.WorktreePath @('rev-parse', '--abbrev-ref', '@{upstream}')) |
-        Should Be 'origin/users/uv/feat-12345-add-search'
-        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/users/uv/feat-12345-add-search')) |
-        Should Not BeNullOrEmpty
+        Should Be 'origin/feat-12345-add-search'
         (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/feat-12345-add-search')) |
-        Should BeNullOrEmpty
-        Remove-Worktree 12345 -BranchName add-search -RemoteBranchPrefix users/uv -RepositoryPath $repository -Confirm:$false
-        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/users/uv/feat-12345-add-search')) |
         Should Not BeNullOrEmpty
+        Remove-Worktree 12345 -BranchName add-search -RepositoryPath $repository -Confirm:$false
+        (& $script:InvokeReviewGit $repository @('ls-remote', '--heads', 'origin', 'refs/heads/feat-12345-add-search')) |
+        Should Not BeNullOrEmpty
+    }
+
+    It 'WorktreeCommands_DoNotExposeRemoteBranchPrefix' {
+        foreach ($commandName in @('New-Worktree', 'Remove-Worktree', 'New-BugWorktree', 'Remove-BugWorktree')) {
+            (Get-Command $commandName).Parameters.ContainsKey('RemoteBranchPrefix') | Should Be $false
+        }
     }
 
     It 'NewBugWorktree_BugIdAndSuffix_CreatesAndRemovesBugBranch' {
@@ -73,21 +77,14 @@ Describe 'Review worktrees' {
     It 'NewBugWorktree_WhatIf_ReturnsPlanWithoutRemoteAccess' {
         & $script:InvokeReviewGit $repository @('remote', 'remove', 'origin') | Out-Null
         $before = & $script:InvokeReviewGit $repository @('show-ref')
-        $plan = New-BugWorktree -BugId 54321 -BranchName fix-login -RemoteBranchPrefix users/uv -RepositoryPath $repository -WhatIf
+        $plan = New-BugWorktree -BugId 54321 -BranchName fix-login -RepositoryPath $repository -WhatIf
         $plan.LocalBranchName | Should Be 'bug-54321-fix-login'
-        $plan.RemoteBranchName | Should Be 'origin/users/uv/bug-54321-fix-login'
+        $plan.RemoteBranchName | Should Be 'origin/bug-54321-fix-login'
         $plan.SourceBranchName | Should Be 'origin/main'
         $plan.WorktreePath | Should Be (Join-Path $testRoot 'bug-54321-fix-login')
         $plan.RemoteAction | Should Be 'Create'
         (Test-Path -LiteralPath $plan.WorktreePath) | Should Be $false
         ((& $script:InvokeReviewGit $repository @('show-ref')) -join "`n") | Should Be ($before -join "`n")
-    }
-
-    It 'NewWorktree_InvalidRemoteBranchPrefix_RefusesBeforeMutation' {
-        Assert-ReviewFailure {
-            New-Worktree 12345 -RemoteBranchPrefix '../users' -RepositoryPath $repository -WhatIf
-        } 'check-ref-format'
-        (& $script:InvokeReviewGit $repository @('branch', '--list', 'feat-12345')) | Should BeNullOrEmpty
     }
 
     It 'NewWorktree_WorkItemId_CreatesAndPublishesTrackingBranchFromBase' {

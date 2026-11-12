@@ -41,15 +41,14 @@ $script:GetReviewTarget = {
 }
 
 $script:GetWorkItemTarget = {
-    param ([string] $RepositoryPath, [string] $WorkItemId, [string] $BranchName, [string] $Prefix = 'feat', [string] $RemoteBranchPrefix)
+    param ([string] $RepositoryPath, [string] $WorkItemId, [string] $BranchName, [string] $Prefix = 'feat')
 
     $featureBranch = "$Prefix-$WorkItemId"
     if ($BranchName) {
         $featureBranch += "-$BranchName"
     }
     $folderName = $featureBranch -replace '[\\/:*?"<>|]', '-'
-    $remoteBranch = if ($RemoteBranchPrefix) { "$RemoteBranchPrefix/$featureBranch" } else { $featureBranch }
-    & $script:GetWorktreeTarget $RepositoryPath $featureBranch $folderName $remoteBranch
+    & $script:GetWorktreeTarget $RepositoryPath $featureBranch $folderName $featureBranch
 }
 
 $script:GetWorktreePlan = {
@@ -209,8 +208,6 @@ function New-Worktree {
         Positive numeric task or user story ID. Also accepts TaskId or UserStoryId.
     .PARAMETER BranchName
         Optional suffix combined with the ID as feat-<id>-<BranchName>.
-    .PARAMETER RemoteBranchPrefix
-        Optional remote-only namespace, such as users/uv. Supply it again for removal.
     .PARAMETER BaseBranch
         Origin branch to start from, without origin/ or refs/heads/. Defaults to main.
     .PARAMETER RepositoryPath
@@ -232,13 +229,10 @@ function New-Worktree {
         [string] $RepositoryPath = (Get-Location).Path,
 
         [ValidateNotNullOrEmpty()]
-        [string] $BranchName,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $RemoteBranchPrefix
+        [string] $BranchName
     )
 
-    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'feat' $RemoteBranchPrefix
+    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'feat'
     & $script:NewPublishedWorktree $target $BaseBranch $PSCmdlet ([bool] $WhatIfPreference)
 }
 
@@ -250,8 +244,6 @@ function Remove-Worktree {
         The task or user story ID passed to New-Worktree. Also accepts TaskId or UserStoryId.
     .PARAMETER BranchName
         The same optional suffix passed to New-Worktree.
-    .PARAMETER RemoteBranchPrefix
-        The same remote-only namespace passed to New-Worktree.
     .PARAMETER Force
         Discards uncommitted files and unpushed commits. Does not bypass Git locks.
     .PARAMETER RepositoryPath
@@ -272,13 +264,10 @@ function Remove-Worktree {
         [string] $RepositoryPath = (Get-Location).Path,
 
         [ValidateNotNullOrEmpty()]
-        [string] $BranchName,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $RemoteBranchPrefix
+        [string] $BranchName
     )
 
-    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'feat' $RemoteBranchPrefix
+    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'feat'
     & $script:RemovePublishedWorktree $target $PSCmdlet ([bool] $WhatIfPreference) -Force:$Force
 }
 
@@ -290,8 +279,6 @@ function New-BugWorktree {
         Positive numeric bug ID. Also accepts BugId.
     .PARAMETER BranchName
         Optional suffix combined with the ID as bug-<id>-<BranchName>.
-    .PARAMETER RemoteBranchPrefix
-        Optional remote-only namespace, such as users/uv. Supply it again for removal.
     .PARAMETER BaseBranch
         Origin branch to start from. Defaults to main.
     .PARAMETER RepositoryPath
@@ -313,13 +300,10 @@ function New-BugWorktree {
         [string] $RepositoryPath = (Get-Location).Path,
 
         [ValidateNotNullOrEmpty()]
-        [string] $BranchName,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $RemoteBranchPrefix
+        [string] $BranchName
     )
 
-    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'bug' $RemoteBranchPrefix
+    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'bug'
     & $script:NewPublishedWorktree $target $BaseBranch $PSCmdlet ([bool] $WhatIfPreference)
 }
 
@@ -331,8 +315,6 @@ function Remove-BugWorktree {
         Positive numeric bug ID passed to New-BugWorktree. Also accepts BugId.
     .PARAMETER BranchName
         The same optional suffix passed to New-BugWorktree.
-    .PARAMETER RemoteBranchPrefix
-        The same remote-only namespace passed to New-BugWorktree.
     .PARAMETER Force
         Discards uncommitted files and unpushed commits. Does not bypass Git locks.
     .PARAMETER RepositoryPath
@@ -353,13 +335,10 @@ function Remove-BugWorktree {
         [string] $RepositoryPath = (Get-Location).Path,
 
         [ValidateNotNullOrEmpty()]
-        [string] $BranchName,
-
-        [ValidateNotNullOrEmpty()]
-        [string] $RemoteBranchPrefix
+        [string] $BranchName
     )
 
-    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'bug' $RemoteBranchPrefix
+    $target = & $script:GetWorkItemTarget $RepositoryPath $WorkItemId $BranchName 'bug'
     & $script:RemovePublishedWorktree $target $PSCmdlet ([bool] $WhatIfPreference) -Force:$Force
 }
 
