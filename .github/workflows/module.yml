@@ -22,7 +22,7 @@ jobs:
           if (-not (Get-Module Microsoft.PowerShell.PSResourceGet -ListAvailable | Where-Object Version -ge '1.1.0')) {
             Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser -Force
           }
-      - name: Validate manifest and worktree tests
+      - name: Validate manifest and unit tests
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -31,7 +31,7 @@ jobs:
           $env:GIT_CONFIG_COUNT = '1'
           $env:GIT_CONFIG_KEY_0 = 'safe.bareRepository'
           $env:GIT_CONFIG_VALUE_0 = 'all'
-          $result = Invoke-Pester .\Tests\Worktree-Functions.Tests.ps1 -PassThru
+          $result = Invoke-Pester .\Tests -PassThru
           if ($result.FailedCount -ne 0) { throw "$($result.FailedCount) tests failed." }
       - name: Test package installation and update
         shell: pwsh

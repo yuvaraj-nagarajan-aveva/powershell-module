@@ -24,7 +24,7 @@ try {
 
     Install-PSResource -Name UVModule -Version $version -Repository $repositoryName -Scope CurrentUser -ErrorAction Stop
     Import-Module UVModule -RequiredVersion $version -Force -ErrorAction Stop
-    $expected = @('New-Worktree', 'Remove-Worktree', 'New-BugWorktree', 'Remove-BugWorktree', 'New-ReviewWorktree', 'Remove-ReviewWorktree')
+    $expected = @('New-Worktree', 'Remove-Worktree', 'New-BugWorktree', 'Remove-BugWorktree', 'New-ReviewWorktree', 'Remove-ReviewWorktree', 'Get-PullRequestWithUnresolvedThread', 'Get-ApprovedPullRequestNotMerged', 'Get-PullRequestNeedingAttention')
     foreach ($name in $expected) {
         if (-not (Get-Command -Name $name -Module UVModule -ErrorAction SilentlyContinue)) {
             throw "Installed module did not export $name."
